@@ -148,15 +148,16 @@ void step_system(struct system* sys, SDL_Renderer* renderer) {
                 
                 calc_accel(&sys->particles[i], &sys->particles[j]);
             }
-        }
-    }
-        
+        } 
+    }   
+    
     for (i = 0; i < sys->size; ++i) {
         if (!sys->particles[i].individual)
             continue;
+       
         sys->particles[i].x += sys->particles[i].vx;
         sys->particles[i].y += sys->particles[i].vy;
-        
+
         float off;
         float speed_sum =
             fabs(sys->particles[i].vx) + fabs(sys->particles[i].vy);
@@ -168,7 +169,7 @@ void step_system(struct system* sys, SDL_Renderer* renderer) {
         }
         
         uint8_t color = (uint8_t) (off * 255.0);
-
+        
         SDL_SetRenderDrawColor(renderer, color, color, 255, 255);
         SDL_RenderDrawPoint( renderer
                            , roundf(sys->particles[i].x)
@@ -178,11 +179,12 @@ void step_system(struct system* sys, SDL_Renderer* renderer) {
 }
 
 void usage(void) {
-    fprintf(stderr, "USAGE: ./particles <size> [-t] [-f]\n");
+    fprintf(stderr, "USAGE: ./particles <size> [-trace] [-fps <fps>]\n");
     exit(1);
 }
 
 int main(int argc, char** argv) {
+    int fps = -1;
     int size = -1;
     bool trace = false;
     int renderer_settings = SDL_RENDERER_ACCELERATED;
@@ -190,10 +192,17 @@ int main(int argc, char** argv) {
     if (argc < 2) usage();
 
     for (int i = 1; i < argc; ++i) {
-        if (!strcmp(argv[i], "-t")) {
+        if (!strcmp(argv[i], "-trace")) {
             trace = true;
-        } else if (!strcmp(argv[i], "-f")) {
-            renderer_settings |= SDL_RENDERER_PRESENTVSYNC;
+        } else if (!strcmp(argv[i], "-fps")) {
+            ++i;
+            if (i == argc)
+                usage();
+
+            fps = atoi(argv[i]);
+
+            if (fps == 0)
+                usage();
         } else {
             int x = atoi(argv[i]);
             
@@ -208,7 +217,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (size == 0) usage();
+    if (size == -1) usage();
     
     printf("Generating particle system...\n"); 
 
@@ -246,8 +255,12 @@ int main(int argc, char** argv) {
     SDL_RenderClear(renderer); // Bit weird putting this here...
 
     SDL_Event event;
+    int start, time;
     bool running = true;
+    
     while (running) {
+        start = SDL_GetTicks();
+
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 running = false;
@@ -267,6 +280,12 @@ int main(int argc, char** argv) {
         step_system(&sys, renderer);
 
         SDL_RenderPresent(renderer);
+        
+        time = SDL_GetTicks() - start;
+
+        if (fps != -1 && time < 1000.0 / fps) {
+            SDL_Delay((1000.0 / fps) - time);
+        }
     }
 
     printf("Cleaning up...\n");
@@ -274,6 +293,8 @@ int main(int argc, char** argv) {
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
+
+    free(sys.particles);
 
     return 0;
 }
