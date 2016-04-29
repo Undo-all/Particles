@@ -51,7 +51,7 @@ struct system gen_system( int size
     sys.particles = malloc(sizeof(struct particle) * size);
 
     if (sys.particles == NULL) {
-        fprintf(stderr, "ERROR: Could not allocate memory for particles.");
+        fprintf(stderr, "ERROR: Could not allocate memory for particles.\n");
         exit(1);
     }
 
@@ -93,49 +93,48 @@ void calc_accel(struct particle* p1, struct particle* p2) {
         max->vy = (max->mass * max->vy + min->mass * min->vy) / ms;
 
         max->mass += min->mass;
-
-        return;
-    }
-
-    // Hardcore optimization time!
-    
-    float d2 = dx*dx + dy*dy;
-    float a1 = G * (p2->mass / d2);
-    int sign = 1;
-
-    if (dx > 0) {
-        sign = 1;
-    } else if (dx == 0) {
-        if (dy > 0) {
-            p1->vy += 1 * a1;
-            p2->vy -= 1 * a1;
-            return;
-        } else {
-            p1->vy -= 1 * a1;
-            p2->vy += 1 * a1;
-            return;
-        }
     } else {
-        sign = -1;
+        // Hardcore optimization! 
+
+        float d2 = dx*dx + dy*dy;
+        float a1 = G * (p2->mass / d2);
+        int sign = 1;
+
+        if (dx > 0) {
+            sign = 1;
+        } else if (dx == 0) {
+            if (dy > 0) {
+                p1->vy += 1 * a1;
+                p2->vy -= 1 * a1;
+                return;
+            } else {
+                p1->vy -= 1 * a1;
+                p2->vy += 1 * a1;
+                return;
+            }
+        } else {
+            sign = -1;
+        }
+        
+        float dd = dy / dx;
+        
+        float ca = sign / sqrt(1 + dd*dd);
+        float sa = dd * ca;
+
+        p1->vx += a1 * ca;
+        p1->vy += a1 * sa;
+
+        float a2 = G * (p1->mass / d2);
+
+        p2->vx -= a2 * ca;
+        p2->vy -= a2 * sa;
     }
-    
-    float dd = dy / dx;
-    
-    float ca = sign / sqrt(1 + dd*dd);
-    float sa = dd * ca;
-
-    p1->vx += a1 * ca;
-    p1->vy += a1 * sa;
-
-    float a2 = G * (p1->mass / d2);
-
-    p2->vx -= a2 * ca;
-    p2->vy -= a2 * sa;
 }
 
 void step_system(struct system* sys, SDL_Renderer* renderer) {
     int i;
 
+    // Basic parallelism results in a suprisingly large speed boost.
     #pragma omp parallel private(i) shared(sys)
     {
         #pragma omp for
@@ -171,20 +170,43 @@ void step_system(struct system* sys, SDL_Renderer* renderer) {
         uint8_t color = (uint8_t) (off * 255.0);
 
         SDL_SetRenderDrawColor(renderer, color, color, 255, 255);
-        SDL_RenderDrawPoint(renderer, sys->particles[i].x, sys->particles[i].y);
+        SDL_RenderDrawPoint( renderer
+                           , roundf(sys->particles[i].x)
+                           , roundf(sys->particles[i].y)
+                           );
     }
 }
 
 void usage(void) {
-    fprintf(stderr, "USAGE: ./particles <trace?> <size>\n");
+    fprintf(stderr, "USAGE: ./particles <size> [-t] [-f]\n");
     exit(1);
 }
 
 int main(int argc, char** argv) {
-    if (argc != 3) usage();
-    
-    bool trace = atoi(argv[1]);
-    int size = atoi(argv[2]);
+    int size = -1;
+    bool trace = false;
+    int renderer_settings = SDL_RENDERER_ACCELERATED;
+
+    if (argc < 2) usage();
+
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "-t")) {
+            trace = true;
+        } else if (!strcmp(argv[i], "-f")) {
+            renderer_settings |= SDL_RENDERER_PRESENTVSYNC;
+        } else {
+            int x = atoi(argv[i]);
+            
+            if (x == 0) 
+                usage();
+            else if (x < 0)
+                usage();
+            else if (size != -1)
+                usage();
+            else
+                size = x;
+        }
+    }
 
     if (size == 0) usage();
     
@@ -203,7 +225,7 @@ int main(int argc, char** argv) {
                              , SDL_WINDOWPOS_UNDEFINED
                              , SCREEN_WIDTH
                              , SCREEN_HEIGHT
-                             , SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN
+                             , SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN 
                              );
     
     if (window == NULL) {
@@ -211,7 +233,10 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    renderer = SDL_CreateRenderer( window
+                                 , -1
+                                 , renderer_settings
+                                 );
 
     if (renderer == NULL) {
         fprintf(stderr, "ERROR: Couldn't create renderer (%s)\n", SDL_GetError()); 
